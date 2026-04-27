@@ -1,8 +1,19 @@
 import json
+import os
 import re
 from typing import Any, Dict, List, Optional, Tuple
 
 from reliability.risk_assessor import assess_risk
+
+# Directory where prompt templates live, relative to this file
+PROMPTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "prompts")
+
+
+def _load_prompt(filename: str) -> str:
+    """Load a prompt template from the prompts/ folder."""
+    path = os.path.join(PROMPTS_DIR, filename)
+    with open(path, "r", encoding="utf-8") as f:
+        return f.read()
 
 
 class BugHoundAgent:
@@ -59,15 +70,11 @@ class BugHoundAgent:
             return self._heuristic_analyze(code_snippet)
 
         self._log("ANALYZE", "Using LLM analyzer.")
-        system_prompt = (
-            "You are BugHound, a code review assistant. "
-            "Return ONLY valid JSON. No markdown, no backticks."
-        )
-        user_prompt = (
-            "Analyze this Python code for potential issues. "
-            "Return a JSON array of issue objects with keys: type, severity, msg.\n\n"
-            f"CODE:\n{code_snippet}"
-        )
+
+        # Load prompt templates from prompts/ folder
+        system_prompt = _load_prompt("analyzer_system.txt")
+        user_template = _load_prompt("analyzer_user.txt")
+        user_prompt = user_template.replace("{{CODE}}", code_snippet)
 
         # UPDATED: Added exception handling for API errors/rate limits
         try:
@@ -94,16 +101,11 @@ class BugHoundAgent:
             return self._heuristic_fix(code_snippet, issues)
 
         self._log("ACT", "Using LLM fixer.")
-        system_prompt = (
-            "You are BugHound, a careful refactoring assistant. "
-            "Return ONLY the full rewritten Python code. No markdown, no backticks."
-        )
-        user_prompt = (
-            "Rewrite the code to address the issues listed. "
-            "Preserve behavior when possible. Keep changes minimal.\n\n"
-            f"ISSUES (JSON):\n{json.dumps(issues)}\n\n"
-            f"CODE:\n{code_snippet}"
-        )
+
+        # Load prompt templates from prompts/ folder
+        system_prompt = _load_prompt("fixer_system.txt")
+        user_template = _load_prompt("fixer_user.txt")
+        user_prompt = user_template.replace("{{ISSUES}}", json.dumps(issues)).replace("{{CODE}}", code_snippet)
 
         # UPDATED: Added exception handling for API errors/rate limits
         try:
