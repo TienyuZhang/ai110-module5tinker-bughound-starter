@@ -83,6 +83,14 @@ class BugHoundAgent:
             self._log("ANALYZE", f"API Error: {str(e)}. Falling back to heuristics.")
             return self._heuristic_analyze(code_snippet)
 
+        # Empty string means the API returned nothing (e.g. rate limit silently swallowed by client).
+        if not raw.strip():
+            self._log("ANALYZE", "API returned empty response. Falling back to heuristics.")
+            return self._heuristic_analyze(code_snippet)
+
+        # Strip code fences before parsing — the model sometimes wraps JSON in ```json ... ```.
+        raw = self._strip_code_fences(raw)
+
         issues = self._parse_json_array_of_issues(raw)
 
         if issues is None:
