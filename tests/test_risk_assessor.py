@@ -46,3 +46,21 @@ def test_missing_return_is_penalized():
     )
     assert risk["score"] < 100
     assert any("Return" in r or "return" in r for r in risk["reasons"])
+
+
+def test_comment_only_fix_is_not_autofix():
+    # Failure mode: a short file with one low-severity issue scores 95 (low risk) when
+    # the LLM returns a comment instead of real code. Without the comment-only guardrail,
+    # should_autofix is True even though the "fix" contains no executable Python.
+    # This test would FAIL without the "no executable lines" deduction in risk_assessor.py.
+    original = "x = 1\nprint(x)\n"
+    comment_only_fix = "# MockClient: no rewrite available in offline mode."
+    risk = assess_risk(
+        original_code=original,
+        fixed_code=comment_only_fix,
+        issues=[{"type": "Code Quality", "severity": "Low", "msg": "print statement"}],
+    )
+    assert risk["should_autofix"] is False, (
+        "A comment-only fix must never be auto-applied (score was {})".format(risk["score"])
+    )
+    assert any("executable" in r for r in risk["reasons"])

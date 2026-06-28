@@ -56,6 +56,17 @@ def assess_risk(
         reasons.append("Multiple issues found; combined fix is harder to verify safely.")
 
     # ----------------------------
+    # Comment-only fix check
+    # ----------------------------
+    # If every non-blank line in the fix starts with '#', the output is comments only —
+    # not executable Python. This catches cases where the LLM (or MockClient) returns
+    # a refusal or placeholder instead of real code.
+    executable_lines = [l for l in fixed_lines if l.strip() and not l.strip().startswith("#")]
+    if not executable_lines:
+        score -= 40
+        reasons.append("Fixed code contains no executable lines (comments or blank only).")
+
+    # ----------------------------
     # Structural change checks
     # ----------------------------
     if len(fixed_lines) < len(original_lines) * 0.5:
