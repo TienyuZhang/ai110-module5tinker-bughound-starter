@@ -100,30 +100,39 @@ class BugHoundAgent:
         return issues
 
     def propose_fix(self, code_snippet: str, issues: List[Dict[str, str]]) -> str:
+        # If no issues were detected, there is nothing to fix.
         if not issues:
             self._log("ACT", "No issues, returning original code unchanged.")
             return code_snippet
 
+        # Decision point: use heuristic fixer when no LLM client is available (offline mode).
         if not self._can_call_llm():
             self._log("ACT", "Using heuristic fixer (offline mode).")
             return self._heuristic_fix(code_snippet, issues)
 
         self._log("ACT", "Using LLM fixer.")
 
-        # Load prompt templates from prompts/ folder
+        # Build the prompt by injecting both the detected issues (as JSON) and the
+        # original code into the fixer template. The model receives the full context
+        # of what was found and what code to rewrite.
         system_prompt = _load_prompt("fixer_system.txt")
         user_template = _load_prompt("fixer_user.txt")
         user_prompt = user_template.replace("{{ISSUES}}", json.dumps(issues)).replace("{{CODE}}", code_snippet)
 
-        # UPDATED: Added exception handling for API errors/rate limits
+        # Decision point: fall back to heuristics if the API call raises an exception
+        # (e.g. network error, invalid key). GeminiClient also swallows errors internally
+        # and returns "", which is caught by the empty-response check below.
         try:
             raw = self.client.complete(system_prompt=system_prompt, user_prompt=user_prompt)
         except Exception as e:
             self._log("ACT", f"API Error: {str(e)}. Falling back to heuristic fixer.")
             return self._heuristic_fix(code_snippet, issues)
 
+        # The model is expected to return only code, sometimes wrapped in ```...``` fences.
+        # _strip_code_fences extracts the inner content so we store clean Python.
         cleaned = self._strip_code_fences(raw).strip()
 
+        # Decision point: fall back to heuristics if the LLM returned nothing usable.
         if not cleaned:
             self._log("ACT", "LLM returned empty output. Falling back to heuristic fixer.")
             return self._heuristic_fix(code_snippet, issues)
@@ -168,9 +177,14 @@ class BugHoundAgent:
     def _heuristic_fix(self, code: str, issues: List[Dict[str, str]]) -> str:
         fixed = code
 
+        # Triggered by issue type "Reliability": replace bare `except:` with a named handler.
+        # Note: this only matches the exact string "Reliability" — if the LLM returns a
+        # different label (e.g. "Error Handling"), this transform is silently skipped.
         if any(i.get("type") == "Reliability" for i in issues):
             fixed = re.sub(r"\bexcept\s*:\s*", "except Exception as e:\n        # [BugHound] log or handle the error\n        ", fixed)
 
+        # Triggered by issue type "Code Quality": swap print() for logging.info() and
+        # add the import if it's not already present.
         if any(i.get("type") == "Code Quality" for i in issues):
             if "import logging" not in fixed:
                 fixed = "import logging\n\n" + fixed

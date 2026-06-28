@@ -47,6 +47,15 @@ def assess_risk(
             reasons.append("Low severity issue detected.")
 
     # ----------------------------
+    # Multiple-issue penalty
+    # ----------------------------
+    # A fix that addresses 2+ issues touches more of the code and is harder to verify
+    # than a single targeted change, so we add extra caution.
+    if len(issues) >= 2:
+        score -= 15
+        reasons.append("Multiple issues found; combined fix is harder to verify safely.")
+
+    # ----------------------------
     # Structural change checks
     # ----------------------------
     if len(fixed_lines) < len(original_lines) * 0.5:
